@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">SwitchSynth</string>
+    <string name="tab_languages">Nyelvek</string>
+    <string name="tab_voices">Hangok</string>
+    <string name="btn_select_all">Összes kijelölése</string>
+    <string name="btn_deselect_all">Kijelölések törlése</string>
+    <string name="label_representative_languages">Reprezentatív nyelvek az írásrendszerekhez:</string>
+    <string name="label_latin">Latin</string>
+    <string name="label_others">Egyéb</string>
+    <string name="placeholder_select_language">Kiválasztás...</string>
+    <string name="label_supported_languages">Támogatott nyelvek:</string>
+    <string name="switch_use_accessibility_volume">Akadálymentesítési hangerő használata</string>
+    <string name="label_speech_rate">Beszédsebesség: %1$.1f</string>
+    <string name="label_pitch">Hangmagasság: %1$.1f</string>
+    <string name="label_volume">Hangerő: %1$.1f</string>
+    <string name="label_voice_latin">Hang latin íráshoz:</string>
+    <string name="label_voice_others">Hang egyéb írásokhoz:</string>
+    <string name="error_select_language_first">Kérjük, először válasszon ki egy reprezentatív nyelvet a Nyelvek lapon.</string>
+    <string name="placeholder_select_voice">Hang kiválasztása...</string>
+    <string name="error_no_voices_found">Nem található hang ehhez a nyelvhez</string>
+    <string name="label_default_voice">%1$s - Alapértelmezett (%2$s)</string>
+</resources>

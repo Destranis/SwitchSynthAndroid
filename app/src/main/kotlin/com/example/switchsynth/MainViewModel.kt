@@ -172,7 +172,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (status == TextToSpeech.SUCCESS && tts != null) {
                 // Fetch locales
                 val locales = tts.availableLanguages ?: emptySet()
-                allDiscoveredLocales.addAll(locales)
+                locales.forEach {
+                    allDiscoveredLocales.add(Locale(it.language))
+                }
 
                 // Fetch voices
                 val voices = try { tts.voices ?: emptySet() } catch (e: Exception) { 
@@ -180,6 +182,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     emptySet() 
                 }
                 
+                val application = getApplication<Application>()
                 if (voices.isNotEmpty()) {
                     voices.forEach { voice ->
                         allDiscoveredVoices.add(VoiceInfo(
@@ -194,7 +197,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     locales.forEach { locale ->
                         allDiscoveredVoices.add(VoiceInfo(
                             id = "${packageName}:default_${locale.toLanguageTag()}",
-                            name = "$label - Default (${locale.displayName})",
+                            name = application.getString(R.string.label_default_voice, label, locale.displayName),
                             locale = locale,
                             engine = packageName
                         ))
@@ -215,7 +218,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun updateUiWithDiscoveredData() {
         _uiState.update { 
             it.copy(
-                availableLocales = allDiscoveredLocales.toList().sortedBy { it.displayName },
+                // Filter to ensure unique display names (e.g., only one "Hungarian")
+                availableLocales = allDiscoveredLocales
+                    .associateBy { locale -> locale.displayName }
+                    .values
+                    .toList()
+                    .sortedBy { it.displayName },
                 availableVoices = allDiscoveredVoices.toList().sortedBy { it.name }
             )
         }

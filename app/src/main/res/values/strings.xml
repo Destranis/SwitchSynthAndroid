@@ -1,3 +1,22 @@
 <resources>
     <string name="app_name">SwitchSynth</string>
+    <string name="tab_languages">Languages</string>
+    <string name="tab_voices">Voices</string>
+    <string name="btn_select_all">Select All</string>
+    <string name="btn_deselect_all">Deselect All</string>
+    <string name="label_representative_languages">Representative Languages for Scripts:</string>
+    <string name="label_latin">Latin</string>
+    <string name="label_others">Others</string>
+    <string name="placeholder_select_language">Select...</string>
+    <string name="label_supported_languages">Supported Languages:</string>
+    <string name="switch_use_accessibility_volume">Use Accessibility Volume</string>
+    <string name="label_speech_rate">Speech Rate: %1$.1f</string>
+    <string name="label_pitch">Pitch: %1$.1f</string>
+    <string name="label_volume">Volume: %1$.1f</string>
+    <string name="label_voice_latin">Voice for Latin Script:</string>
+    <string name="label_voice_others">Voice for Other Scripts:</string>
+    <string name="error_select_language_first">Please select a representative language first in the Languages tab.</string>
+    <string name="placeholder_select_voice">Select Voice...</string>
+    <string name="error_no_voices_found">No voices found for this language</string>
+    <string name="label_default_voice">%1$s - Default (%2$s)</string>
 </resources>
