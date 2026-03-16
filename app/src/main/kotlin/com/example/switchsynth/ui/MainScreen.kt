@@ -77,7 +77,7 @@ fun LanguagesTab(uiState: UiState, viewModel: MainViewModel) {
                         checked = uiState.selectedLanguages.contains(tag),
                         onCheckedChange = { viewModel.toggleLanguage(tag) }
                     )
-                    Text(locale.displayName)
+                    Text(viewModel.getDisplayName(locale))
                 }
             }
         }
@@ -152,30 +152,31 @@ fun VoicesTab(uiState: UiState, viewModel: MainViewModel) {
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(stringResource(R.string.label_voice_latin))
-        VoiceSelector(uiState.latinLanguage, uiState.latinVoiceId, uiState.availableVoices) {
+        VoiceSelector(viewModel, uiState.latinLanguage, uiState.latinVoiceId, uiState.availableVoices) {
             viewModel.setLatinVoice(it)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(stringResource(R.string.label_voice_others))
-        VoiceSelector(uiState.othersLanguage, uiState.othersVoiceId, uiState.availableVoices) {
+        VoiceSelector(viewModel, uiState.othersLanguage, uiState.othersVoiceId, uiState.availableVoices) {
             viewModel.setOthersVoice(it)
         }
     }
 }
 
 @Composable
-fun VoiceSelector(language: String?, selectedVoiceId: String?, allVoices: List<VoiceInfo>, onSelect: (String) -> Unit) {
+fun VoiceSelector(viewModel: MainViewModel, language: String?, selectedVoiceId: String?, allVoices: List<VoiceInfo>, onSelect: (String) -> Unit) {
     if (language == null) {
         Text(stringResource(R.string.error_select_language_first), style = MaterialTheme.typography.bodySmall)
         return
     }
 
     val selectedLocale = Locale.forLanguageTag(language)
+    val selectedStableName = viewModel.getStableLanguageName(selectedLocale)
+    
     val filteredVoices = allVoices.filter { 
-        // Match by base language (e.g. "hu" matches "hu" and "hu-HU")
-        it.locale.language == selectedLocale.language 
+        viewModel.getStableLanguageName(it.locale) == selectedStableName
     }
     var expanded by remember { mutableStateOf(false) }
     val currentDisplay = filteredVoices.find { it.id == selectedVoiceId }?.name ?: stringResource(R.string.placeholder_select_voice)

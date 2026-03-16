@@ -87,7 +87,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         
         Log.d("SwitchSynth", "Starting robust engine discovery...")
 
-        // 1. System-wide TTS Discovery (using queryIntentServices)
+        // 1. System-wide TTS Discovery
         val intent = Intent("android.intent.action.TTS_SERVICE")
         val resolveInfos = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             pm.queryIntentServices(intent, PackageManager.ResolveInfoFlags.of(0))
@@ -100,10 +100,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val packageName = it.serviceInfo.packageName
             val label = it.loadLabel(pm).toString()
             engineMap[packageName] = label
-            Log.d("SwitchSynth", "Found engine via PM query: $packageName ($label)")
         }
 
-        // 2. Explicit checks for well-known engines (Google, eSpeak, etc.)
+        // 2. Explicit checks for well-known engines
         val commonPackages = listOf(
             "com.google.android.tts",
             "com.googlecode.eyesfree.espeak",
@@ -120,12 +119,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val ai = pm.getApplicationInfo(pkg, 0)
                     val label = pm.getApplicationLabel(ai).toString()
                     engineMap[pkg] = label
-                    Log.d("SwitchSynth", "Forced discovery of known package: $pkg ($label)")
-                } catch (e: Exception) { /* Package not installed */ }
+                } catch (e: Exception) { }
             }
         }
 
-        // 3. Fallback: Check System API if list is still small
+        // 3. Fallback: Check System API
         try {
             val tempInitLock = CompletableDeferred<Int>()
             val tempTts = TextToSpeech(application) { status -> tempInitLock.complete(status) }
@@ -133,31 +131,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             tempTts.engines.forEach {
                 if (!engineMap.containsKey(it.name)) {
                     engineMap[it.name] = it.label
-                    Log.d("SwitchSynth", "Added missing engine from system API: ${it.name}")
                 }
             }
             tempTts.shutdown()
-        } catch (e: Exception) {
-            Log.w("SwitchSynth", "Fallback discovery failed", e)
-        }
-
-        Log.d("SwitchSynth", "Final engine count for querying: ${engineMap.size}")
+        } catch (e: Exception) { }
 
         allDiscoveredVoices.clear()
         allDiscoveredLocales.clear()
 
-        // 4. Sequential Querying with incremental updates
+        // 4. Sequential Querying
         for ((packageName, label) in engineMap) {
             queryEngine(packageName, label)
             updateUiWithDiscoveredData()
             delay(300) 
         }
-        
-        Log.d("SwitchSynth", "Discovery complete. Locales: ${allDiscoveredLocales.size}, Voices: ${allDiscoveredVoices.size}")
     }
 
     private suspend fun queryEngine(packageName: String, label: String) {
-        Log.d("SwitchSynth", "Querying engine: $packageName ($label)")
         val initLock = CompletableDeferred<Int>()
         var tts: TextToSpeech? = null
         
@@ -166,21 +156,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 initLock.complete(status)
             }, packageName)
 
-            // Longer timeout for RHVoice and others (10 seconds)
             val status = withTimeoutOrNull(10000) { initLock.await() }
             
             if (status == TextToSpeech.SUCCESS && tts != null) {
-                // Fetch locales
+                // Fetch ALL original locales
                 val locales = tts.availableLanguages ?: emptySet()
-                locales.forEach {
-                    allDiscoveredLocales.add(Locale(it.language))
-                }
+                allDiscoveredLocales.addAll(locales)
 
                 // Fetch voices
-                val voices = try { tts.voices ?: emptySet() } catch (e: Exception) { 
-                    Log.w("SwitchSynth", "Failed to fetch voices for $packageName, falling back to locales", e)
-                    emptySet() 
-                }
+                val voices = try { tts.voices ?: emptySet() } catch (e: Exception) { emptySet() }
                 
                 val application = getApplication<Application>()
                 if (voices.isNotEmpty()) {
@@ -193,7 +177,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ))
                     }
                 } else {
-                    // Fallback for older engines that don't support getVoices()
                     locales.forEach { locale ->
                         allDiscoveredVoices.add(VoiceInfo(
                             id = "${packageName}:default_${locale.toLanguageTag()}",
@@ -203,30 +186,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ))
                     }
                 }
-                Log.d("SwitchSynth", "Successfully queried $packageName. Voices found: ${voices.size}, Locales: ${locales.size}")
-            } else {
-                Log.e("SwitchSynth", "Failed to init $packageName (status: $status). Engine might be missing or broken.")
             }
         } catch (e: Exception) {
             Log.e("SwitchSynth", "Error querying $packageName", e)
         } finally {
-            // Important to shutdown discovery instances
             try { tts?.shutdown() } catch (e: Exception) {}
         }
     }
 
     private fun updateUiWithDiscoveredData() {
         _uiState.update { 
+            val grouped = allDiscoveredLocales.groupBy { getStableLanguageName(it) }
+            val representativeLocales = grouped.map { (_, locales) ->
+                val base = locales.first()
+                // Special handling to prefer RU for Russian, etc.
+                if (base.language == "ru") Locale("ru", "RU")
+                else if (base.language == "hu") Locale("hu", "HU")
+                else Locale(base.language)
+            }.sortedBy { getDisplayName(it) }
+            
             it.copy(
-                // Filter to ensure unique display names (e.g., only one "Hungarian")
-                availableLocales = allDiscoveredLocales
-                    .associateBy { locale -> locale.displayName }
-                    .values
-                    .toList()
-                    .sortedBy { it.displayName },
+                availableLocales = representativeLocales,
                 availableVoices = allDiscoveredVoices.toList().sortedBy { it.name }
             )
         }
+    }
+
+    fun getDisplayName(locale: Locale): String {
+        return when (locale.language) {
+            "ru" -> "Russian RU"
+            "hu" -> "Hungarian HU"
+            else -> locale.displayName
+        }
+    }
+
+    // Helper to get a stable language name regardless of variant or system locale
+    fun getStableLanguageName(locale: Locale): String {
+        return locale.getDisplayName(Locale.US).substringBefore(" (")
     }
 
     fun setUseAccessibilityVolume(enabled: Boolean) {
