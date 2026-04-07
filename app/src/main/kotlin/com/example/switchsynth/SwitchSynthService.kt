@@ -111,10 +111,12 @@ class SwitchSynthService : TextToSpeechService() {
     }
 
     private fun isEmoji(codePoint: Int): Boolean {
-        return (codePoint in 0x1F300..0x1FADF) ||
-                (codePoint in 0x2600..0x27BF) ||
-                (codePoint in 0x1F600..0x1F64F) ||
-                (codePoint in 0x1F680..0x1F6FF)
+        return (codePoint in 0x1F000..0x1FBFF) || // Most modern emojis, flags, and pictographs
+                (codePoint in 0x2600..0x27BF) ||  // Misc symbols and Dingbats
+                (codePoint in 0x2300..0x23FF) ||  // Misc Technical
+                (codePoint in 0x2B00..0x2BFF) ||  // Misc Symbols and Arrows
+                (codePoint in 0x2100..0x21FF) ||  // Letterlike Symbols, Arrows, etc.
+                (codePoint == 0x203C || codePoint == 0x2049) // !! and !?
     }
 
     private fun splitText(text: String, emojiAsLatin: Boolean): List<TextSegment> {
