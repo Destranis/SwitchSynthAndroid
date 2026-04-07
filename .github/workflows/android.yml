@@ -25,7 +25,7 @@ jobs:
       run: chmod +x gradlew
 
     - name: Build with Gradle
-      run: ./gradlew assembleDebug
+      run: java -cp gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain assembleDebug
 
     - name: Rename APK
       run: mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/SwitchSynth.apk
@@ -42,4 +42,5 @@ jobs:
       with:
         files: app/build/outputs/apk/debug/SwitchSynth.apk
         generate_release_notes: true
+
 
