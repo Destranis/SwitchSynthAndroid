@@ -7,20 +7,31 @@ import android.speech.tts.SynthesisCallback
 import android.speech.tts.SynthesisRequest
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
-import android.speech.tts.Voice
 import android.util.Log
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
+import kotlin.math.max
 import java.util.Locale
 
 class SwitchSynthService : TextToSpeechService() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private lateinit var repository: PreferencesRepository
     private val engines = mutableMapOf<String, TextToSpeech>()
+    @Volatile
     private var synthesisJob: Job? = null
+
+    companion object {
+        @Volatile
+        var instance: SwitchSynthService? = null
+
+        fun stopSpeech() {
+            instance?.onStop()
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         repository = PreferencesRepository(this)
     }
 
@@ -57,14 +68,14 @@ class SwitchSynthService : TextToSpeechService() {
 
         val text = request.charSequenceText.toString()
         Log.d("SwitchSynth", "Synthesize: $text")
-        
+
         // Immediate stop of everything
         synthesisJob?.cancel()
-        engines.values.forEach { 
+        engines.values.forEach {
             try { it.stop() } catch (e: Exception) {}
         }
 
-        synthesisJob = scope.launch {
+        val job = scope.launch {
             try {
                 val latinVoiceId = repository.latinVoice.first()
                 val othersVoiceId = repository.othersVoice.first()
@@ -73,9 +84,9 @@ class SwitchSynthService : TextToSpeechService() {
                 val pitch = repository.speechPitch.first()
                 val volume = repository.speechVolume.first()
                 val emojiVoicePref = repository.emojiVoice.first()
-                
+
                 val segments = splitText(text, emojiVoicePref == "latin")
-                
+
                 callback.start(16000, android.media.AudioFormat.ENCODING_PCM_16BIT, 1)
 
                 for (segment in segments) {
@@ -85,7 +96,7 @@ class SwitchSynthService : TextToSpeechService() {
                         synthesizeSegment(segment.text, voiceId, useAccVolume, rate, pitch, volume)
                     }
                 }
-                
+
                 callback.done()
             } catch (e: CancellationException) {
                 Log.d("SwitchSynth", "Synthesis job cancelled")
@@ -95,6 +106,11 @@ class SwitchSynthService : TextToSpeechService() {
                 callback.error()
             }
         }
+        synthesisJob = job
+
+        // Block the synthesis thread so the TTS framework knows we're still speaking.
+        // This lets onStop() work correctly when TalkBack calls stop().
+        runBlocking { job.join() }
     }
 
     private enum class Script { LATIN, OTHER, NEUTRAL }
@@ -206,13 +222,17 @@ class SwitchSynthService : TextToSpeechService() {
         internalTts.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
         
         try {
-            withTimeout(15000) { completionLock.await() }
+            // Scale timeout by text length: ~200ms per char, minimum 60s
+            val timeoutMs = max(60_000L, text.length * 200L)
+            withTimeout(timeoutMs) { completionLock.await() }
+        } catch (e: TimeoutCancellationException) {
+            Log.w("SwitchSynth", "Timeout for segment ($utteranceId), moving on")
+            internalTts.stop()
+        } catch (e: CancellationException) {
+            internalTts.stop()
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) {
-                internalTts.stop()
-                throw e
-            }
-            Log.e("SwitchSynth", "Timeout or error for $utteranceId")
+            Log.e("SwitchSynth", "Error for $utteranceId", e)
         }
     }
 
@@ -256,6 +276,7 @@ class SwitchSynthService : TextToSpeechService() {
     data class TextSegment(val text: String, val isLatin: Boolean)
 
     override fun onDestroy() {
+        instance = null
         engines.values.forEach { it.shutdown() }
         super.onDestroy()
     }
