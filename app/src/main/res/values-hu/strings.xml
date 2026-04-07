@@ -2,6 +2,10 @@
     <string name="app_name">SwitchSynth</string>
     <string name="tab_languages">Nyelvek</string>
     <string name="tab_voices">Hangok</string>
+    <string name="tab_misc">Egyéb</string>
+    <string name="label_emoji_reading">Hangulatjelek olvasása ezzel a hanggal:</string>
+    <string name="accessibility_service_label">SwitchSynth megállító segítő</string>
+    <string name="accessibility_description">Segít a SwitchSynthnek megállítani a beszédet, amikor megérinti a képernyőt.</string>
     <string name="btn_select_all">Összes kijelölése</string>
     <string name="btn_deselect_all">Kijelölések törlése</string>
     <string name="label_representative_languages">Reprezentatív nyelvek az írásrendszerekhez:</string>

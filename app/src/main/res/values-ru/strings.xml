@@ -1,0 +1,26 @@
+<resources>
+    <string name="app_name">SwitchSynth</string>
+    <string name="tab_languages">Языки</string>
+    <string name="tab_voices">Голоса</string>
+    <string name="tab_misc">Прочее</string>
+    <string name="label_emoji_reading">Читать эмодзи голосом для:</string>
+    <string name="accessibility_service_label">Помощник остановки SwitchSynth</string>
+    <string name="accessibility_description">Помогает SwitchSynth прекращать чтение при касании экрана.</string>
+    <string name="btn_select_all">Выбрать все</string>
+    <string name="btn_deselect_all">Снять все</string>
+    <string name="label_representative_languages">Представительные языки для скриптов:</string>
+    <string name="label_latin">Латиница</string>
+    <string name="label_others">Другие</string>
+    <string name="placeholder_select_language">Выберите...</string>
+    <string name="label_supported_languages">Поддерживаемые языки:</string>
+    <string name="switch_use_accessibility_volume">Использовать громкость специальных возможностей</string>
+    <string name="label_speech_rate">Скорость речи: %1$.1f</string>
+    <string name="label_pitch">Тон: %1$.1f</string>
+    <string name="label_volume">Громкость: %1$.1f</string>
+    <string name="label_voice_latin">Голос для латиницы:</string>
+    <string name="label_voice_others">Голос для других скриптов:</string>
+    <string name="error_select_language_first">Сначала выберите представительный язык на вкладке «Языки».</string>
+    <string name="placeholder_select_voice">Выберите голос...</string>
+    <string name="error_no_voices_found">Голоса для этого языка не найдены</string>
+    <string name="label_default_voice">%1$s - По умолчанию (%2$s)</string>
+</resources>

@@ -21,6 +21,7 @@ class PreferencesRepository(private val context: Context) {
         val SPEECH_RATE = floatPreferencesKey("speech_rate")
         val SPEECH_PITCH = floatPreferencesKey("speech_pitch")
         val SPEECH_VOLUME = floatPreferencesKey("speech_volume")
+        val EMOJI_VOICE = stringPreferencesKey("emoji_voice")
     }
 
     val useAccessibilityVolume: Flow<Boolean> = context.dataStore.data
@@ -34,6 +35,9 @@ class PreferencesRepository(private val context: Context) {
 
     val speechVolume: Flow<Float> = context.dataStore.data
         .map { preferences -> preferences[Keys.SPEECH_VOLUME] ?: 1.0f }
+
+    val emojiVoice: Flow<String> = context.dataStore.data
+        .map { preferences -> preferences[Keys.EMOJI_VOICE] ?: "latin" }
 
     suspend fun updateUseAccessibilityVolume(enabled: Boolean) {
         context.dataStore.edit { it[Keys.USE_ACCESSIBILITY_VOLUME] = enabled }
@@ -49,6 +53,10 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun updateSpeechVolume(volume: Float) {
         context.dataStore.edit { it[Keys.SPEECH_VOLUME] = volume }
+    }
+
+    suspend fun updateEmojiVoice(voice: String) {
+        context.dataStore.edit { it[Keys.EMOJI_VOICE] = voice }
     }
 
     val selectedLanguages: Flow<Set<String>> = context.dataStore.data

@@ -2,6 +2,10 @@
     <string name="app_name">SwitchSynth</string>
     <string name="tab_languages">Languages</string>
     <string name="tab_voices">Voices</string>
+    <string name="tab_misc">Misc</string>
+    <string name="label_emoji_reading">Read emoji using voice for:</string>
+    <string name="accessibility_service_label">SwitchSynth Stop Helper</string>
+    <string name="accessibility_description">Helps SwitchSynth stop speaking when you touch the screen.</string>
     <string name="btn_select_all">Select All</string>
     <string name="btn_deselect_all">Deselect All</string>
     <string name="label_representative_languages">Representative Languages for Scripts:</string>

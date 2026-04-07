@@ -1,5 +1,6 @@
 package com.example.switchsynth
 
+import android.content.Intent
 import android.media.AudioAttributes
 import android.os.Bundle
 import android.speech.tts.SynthesisCallback
@@ -23,6 +24,14 @@ class SwitchSynthService : TextToSpeechService() {
         repository = PreferencesRepository(this)
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == "com.example.switchsynth.ACTION_STOP") {
+            Log.d("SwitchSynth", "ACTION_STOP received")
+            onStop()
+        }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
     override fun onIsLanguageAvailable(lang: String?, country: String?, variant: String?): Int {
         return TextToSpeech.LANG_AVAILABLE
     }
@@ -36,78 +45,115 @@ class SwitchSynthService : TextToSpeechService() {
     }
 
     override fun onStop() {
+        Log.d("SwitchSynth", "onStop() called")
         synthesisJob?.cancel()
-        engines.values.forEach { it.stop() }
+        engines.values.forEach { 
+            try { it.stop() } catch (e: Exception) {}
+        }
     }
 
     override fun onSynthesizeText(request: SynthesisRequest?, callback: SynthesisCallback?) {
         if (request == null || callback == null) return
 
         val text = request.charSequenceText.toString()
+        Log.d("SwitchSynth", "Synthesize: $text")
         
         // Immediate stop of everything
         synthesisJob?.cancel()
-        engines.values.forEach { it.stop() }
+        engines.values.forEach { 
+            try { it.stop() } catch (e: Exception) {}
+        }
 
         synthesisJob = scope.launch {
-            val latinVoiceId = repository.latinVoice.first()
-            val othersVoiceId = repository.othersVoice.first()
-            val useAccVolume = repository.useAccessibilityVolume.first()
-            val rate = repository.speechRate.first()
-            val pitch = repository.speechPitch.first()
-            val volume = repository.speechVolume.first()
-            
-            val segments = splitText(text)
-            
-            callback.start(16000, android.media.AudioFormat.ENCODING_PCM_16BIT, 1)
+            try {
+                val latinVoiceId = repository.latinVoice.first()
+                val othersVoiceId = repository.othersVoice.first()
+                val useAccVolume = repository.useAccessibilityVolume.first()
+                val rate = repository.speechRate.first()
+                val pitch = repository.speechPitch.first()
+                val volume = repository.speechVolume.first()
+                val emojiVoicePref = repository.emojiVoice.first()
+                
+                val segments = splitText(text, emojiVoicePref == "latin")
+                
+                callback.start(16000, android.media.AudioFormat.ENCODING_PCM_16BIT, 1)
 
-            for (segment in segments) {
-                if (!isActive) break
-                val voiceId = if (segment.isLatin) latinVoiceId else othersVoiceId
-                if (voiceId != null) {
-                    synthesizeSegment(segment.text, voiceId, useAccVolume, rate, pitch, volume)
+                for (segment in segments) {
+                    if (!isActive) break
+                    val voiceId = if (segment.isLatin) latinVoiceId else othersVoiceId
+                    if (voiceId != null) {
+                        synthesizeSegment(segment.text, voiceId, useAccVolume, rate, pitch, volume)
+                    }
                 }
+                
+                callback.done()
+            } catch (e: CancellationException) {
+                Log.d("SwitchSynth", "Synthesis job cancelled")
+                throw e
+            } catch (e: Exception) {
+                Log.e("SwitchSynth", "Synthesis error", e)
+                callback.error()
             }
-            
-            callback.done()
         }
     }
 
     private enum class Script { LATIN, OTHER, NEUTRAL }
 
-    private fun getScript(char: Char): Script {
-        if (!char.isLetter()) return Script.NEUTRAL
-        val cp = char.code
-        return if (cp in 0x0000..0x024F) Script.LATIN else Script.OTHER
+    private fun getScript(codePoint: Int, emojiAsLatin: Boolean): Script {
+        if (isEmoji(codePoint)) {
+            return if (emojiAsLatin) Script.LATIN else Script.OTHER
+        }
+        if (Character.isLetter(codePoint)) {
+            // Basic Latin + Latin Supplement + Latin Extended
+            return if (codePoint in 0x0000..0x024F) Script.LATIN else Script.OTHER
+        }
+        return Script.NEUTRAL
     }
 
-    private fun splitText(text: String): List<TextSegment> {
+    private fun isEmoji(codePoint: Int): Boolean {
+        return (codePoint in 0x1F300..0x1FADF) ||
+                (codePoint in 0x2600..0x27BF) ||
+                (codePoint in 0x1F600..0x1F64F) ||
+                (codePoint in 0x1F680..0x1F6FF)
+    }
+
+    private fun splitText(text: String, emojiAsLatin: Boolean): List<TextSegment> {
         if (text.isEmpty()) return emptyList()
         val segments = mutableListOf<TextSegment>()
         var currentText = StringBuilder()
         
-        var firstScript = Script.NEUTRAL
-        for (char in text) {
-            val s = getScript(char)
+        val codePoints = text.codePoints().toArray()
+        
+        // Initial script discovery
+        var currentScript = Script.LATIN
+        for (cp in codePoints) {
+            val s = getScript(cp, emojiAsLatin)
             if (s != Script.NEUTRAL) {
-                firstScript = s
+                currentScript = s
                 break
             }
         }
-        val startingScript = if (firstScript == Script.NEUTRAL) Script.LATIN else firstScript
-        var currentScript = startingScript
 
-        for (char in text) {
-            val charScript = getScript(char)
+        for (cp in codePoints) {
+            val charScript = getScript(cp, emojiAsLatin)
+            
+            // NEUTRAL characters (spaces, punctuation) never trigger a split.
+            // They are just appended to the current segment.
             if (charScript == Script.NEUTRAL || charScript == currentScript) {
-                currentText.append(char)
+                currentText.appendCodePoint(cp)
             } else {
-                segments.add(TextSegment(currentText.toString(), currentScript == Script.LATIN))
-                currentText = StringBuilder().append(char)
+                // Only split when we transition from one active script to another
+                if (currentText.isNotEmpty()) {
+                    segments.add(TextSegment(currentText.toString(), currentScript == Script.LATIN))
+                }
+                currentText = StringBuilder().appendCodePoint(cp)
                 currentScript = charScript
             }
         }
-        segments.add(TextSegment(currentText.toString(), currentScript == Script.LATIN))
+        
+        if (currentText.isNotEmpty()) {
+            segments.add(TextSegment(currentText.toString(), currentScript == Script.LATIN))
+        }
         return segments
     }
 
@@ -127,6 +173,7 @@ class SwitchSynthService : TextToSpeechService() {
             override fun onStart(id: String?) {}
             override fun onDone(id: String?) { if (id == utteranceId) completionLock.complete(Unit) }
             override fun onError(id: String?) { if (id == utteranceId) completionLock.complete(Unit) }
+            override fun onStop(id: String?, interrupted: Boolean) { if (id == utteranceId) completionLock.complete(Unit) }
         })
 
         // Apply settings every time to be sure
@@ -159,7 +206,11 @@ class SwitchSynthService : TextToSpeechService() {
         try {
             withTimeout(15000) { completionLock.await() }
         } catch (e: Exception) {
-            Log.e("SwitchSynth", "Timeout for $utteranceId")
+            if (e is CancellationException) {
+                internalTts.stop()
+                throw e
+            }
+            Log.e("SwitchSynth", "Timeout or error for $utteranceId")
         }
     }
 

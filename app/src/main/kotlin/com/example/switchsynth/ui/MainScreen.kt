@@ -28,11 +28,39 @@ fun MainScreen(viewModel: MainViewModel) {
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }) {
                 Text(stringResource(R.string.tab_voices), modifier = Modifier.padding(16.dp))
             }
+            Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }) {
+                Text(stringResource(R.string.tab_misc), modifier = Modifier.padding(16.dp))
+            }
         }
 
         when (selectedTab) {
             0 -> LanguagesTab(uiState, viewModel)
             1 -> VoicesTab(uiState, viewModel)
+            2 -> MiscTab(uiState, viewModel)
+        }
+    }
+}
+
+@Composable
+fun MiscTab(uiState: UiState, viewModel: MainViewModel) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text(stringResource(R.string.label_emoji_reading))
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(
+                selected = uiState.emojiVoice == "latin",
+                onClick = { viewModel.setEmojiVoice("latin") }
+            )
+            Text(stringResource(R.string.label_latin), modifier = Modifier.padding(start = 8.dp))
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            RadioButton(
+                selected = uiState.emojiVoice == "others",
+                onClick = { viewModel.setEmojiVoice("others") }
+            )
+            Text(stringResource(R.string.label_others), modifier = Modifier.padding(start = 8.dp))
         }
     }
 }

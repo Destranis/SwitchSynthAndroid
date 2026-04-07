@@ -26,7 +26,8 @@ data class UiState(
     val useAccessibilityVolume: Boolean = true,
     val speechRate: Float = 1.0f,
     val speechPitch: Float = 1.0f,
-    val speechVolume: Float = 1.0f
+    val speechVolume: Float = 1.0f,
+    val emojiVoice: String = "latin"
 )
 
 data class VoiceInfo(
@@ -60,7 +61,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     repository.useAccessibilityVolume,
                     repository.speechRate,
                     repository.speechPitch,
-                    repository.speechVolume
+                    repository.speechVolume,
+                    repository.emojiVoice
                 )
             ) { args ->
                 _uiState.update { 
@@ -73,7 +75,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         useAccessibilityVolume = args[5] as Boolean,
                         speechRate = args[6] as Float,
                         speechPitch = args[7] as Float,
-                        speechVolume = args[8] as Float
+                        speechVolume = args[8] as Float,
+                        emojiVoice = args[9] as String
                     )
                 }
             }.collect()
@@ -213,11 +216,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun getDisplayName(locale: Locale): String {
-        return when (locale.language) {
-            "ru" -> "Russian RU"
-            "hu" -> "Hungarian HU"
-            else -> locale.displayName
-        }
+        return locale.getDisplayName(Locale.getDefault())
     }
 
     // Helper to get a stable language name regardless of variant or system locale
@@ -274,5 +273,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setOthersVoice(voiceId: String) {
         viewModelScope.launch { repository.updateOthersVoice(voiceId) }
+    }
+
+    fun setEmojiVoice(voice: String) {
+        viewModelScope.launch { repository.updateEmojiVoice(voice) }
     }
 }
