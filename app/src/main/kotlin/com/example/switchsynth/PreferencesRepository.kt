@@ -13,15 +13,14 @@ class PreferencesRepository(private val context: Context) {
 
     private object Keys {
         val SELECTED_LANGUAGES = stringSetPreferencesKey("selected_languages")
-        val LATIN_LANGUAGE = stringPreferencesKey("latin_language")
-        val OTHERS_LANGUAGE = stringPreferencesKey("others_language")
-        val LATIN_VOICE = stringPreferencesKey("latin_voice")
-        val OTHERS_VOICE = stringPreferencesKey("others_voice")
         val USE_ACCESSIBILITY_VOLUME = booleanPreferencesKey("use_accessibility_volume")
         val SPEECH_RATE = floatPreferencesKey("speech_rate")
         val SPEECH_PITCH = floatPreferencesKey("speech_pitch")
         val SPEECH_VOLUME = floatPreferencesKey("speech_volume")
         val EMOJI_VOICE = stringPreferencesKey("emoji_voice")
+
+        fun scriptVoiceKey(script: String) = stringPreferencesKey("voice_$script")
+        fun scriptLanguageKey(script: String) = stringPreferencesKey("language_$script")
     }
 
     val useAccessibilityVolume: Flow<Boolean> = context.dataStore.data
@@ -37,7 +36,28 @@ class PreferencesRepository(private val context: Context) {
         .map { preferences -> preferences[Keys.SPEECH_VOLUME] ?: 1.0f }
 
     val emojiVoice: Flow<String> = context.dataStore.data
-        .map { preferences -> preferences[Keys.EMOJI_VOICE] ?: "latin" }
+        .map { preferences -> preferences[Keys.EMOJI_VOICE] ?: "Latin" }
+
+    val selectedLanguages: Flow<Set<String>> = context.dataStore.data
+        .map { preferences -> preferences[Keys.SELECTED_LANGUAGES] ?: emptySet() }
+
+    fun scriptVoice(script: String): Flow<String?> = context.dataStore.data
+        .map { preferences -> preferences[Keys.scriptVoiceKey(script)] }
+
+    fun scriptLanguage(script: String): Flow<String?> = context.dataStore.data
+        .map { preferences -> preferences[Keys.scriptLanguageKey(script)] }
+
+    /** Read all script voices at once from the current preferences snapshot. */
+    fun allScriptVoices(scripts: List<String>): Flow<Map<String, String?>> = context.dataStore.data
+        .map { preferences ->
+            scripts.associateWith { script -> preferences[Keys.scriptVoiceKey(script)] }
+        }
+
+    /** Read all script languages at once from the current preferences snapshot. */
+    fun allScriptLanguages(scripts: List<String>): Flow<Map<String, String?>> = context.dataStore.data
+        .map { preferences ->
+            scripts.associateWith { script -> preferences[Keys.scriptLanguageKey(script)] }
+        }
 
     suspend fun updateUseAccessibilityVolume(enabled: Boolean) {
         context.dataStore.edit { it[Keys.USE_ACCESSIBILITY_VOLUME] = enabled }
@@ -59,38 +79,15 @@ class PreferencesRepository(private val context: Context) {
         context.dataStore.edit { it[Keys.EMOJI_VOICE] = voice }
     }
 
-    val selectedLanguages: Flow<Set<String>> = context.dataStore.data
-        .map { preferences -> preferences[Keys.SELECTED_LANGUAGES] ?: emptySet() }
-
-    val latinLanguage: Flow<String?> = context.dataStore.data
-        .map { preferences -> preferences[Keys.LATIN_LANGUAGE] }
-
-    val othersLanguage: Flow<String?> = context.dataStore.data
-        .map { preferences -> preferences[Keys.OTHERS_LANGUAGE] }
-
-    val latinVoice: Flow<String?> = context.dataStore.data
-        .map { preferences -> preferences[Keys.LATIN_VOICE] }
-
-    val othersVoice: Flow<String?> = context.dataStore.data
-        .map { preferences -> preferences[Keys.OTHERS_VOICE] }
-
     suspend fun updateSelectedLanguages(languages: Set<String>) {
         context.dataStore.edit { it[Keys.SELECTED_LANGUAGES] = languages }
     }
 
-    suspend fun updateLatinLanguage(language: String) {
-        context.dataStore.edit { it[Keys.LATIN_LANGUAGE] = language }
+    suspend fun updateScriptVoice(script: String, voiceId: String) {
+        context.dataStore.edit { it[Keys.scriptVoiceKey(script)] = voiceId }
     }
 
-    suspend fun updateOthersLanguage(language: String) {
-        context.dataStore.edit { it[Keys.OTHERS_LANGUAGE] = language }
-    }
-
-    suspend fun updateLatinVoice(voiceId: String) {
-        context.dataStore.edit { it[Keys.LATIN_VOICE] = voiceId }
-    }
-
-    suspend fun updateOthersVoice(voiceId: String) {
-        context.dataStore.edit { it[Keys.OTHERS_VOICE] = voiceId }
+    suspend fun updateScriptLanguage(script: String, langTag: String) {
+        context.dataStore.edit { it[Keys.scriptLanguageKey(script)] = langTag }
     }
 }

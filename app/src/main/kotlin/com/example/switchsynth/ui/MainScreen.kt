@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import com.example.switchsynth.MainViewModel
 import com.example.switchsynth.R
 import com.example.switchsynth.UiState
+import com.example.switchsynth.UnicodeScripts
 import com.example.switchsynth.VoiceInfo
 import java.util.Locale
 
@@ -46,21 +47,40 @@ fun MiscTab(uiState: UiState, viewModel: MainViewModel) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text(stringResource(R.string.label_emoji_reading))
         Spacer(modifier = Modifier.height(8.dp))
-        
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(
-                selected = uiState.emojiVoice == "latin",
-                onClick = { viewModel.setEmojiVoice("latin") }
-            )
-            Text(stringResource(R.string.label_latin), modifier = Modifier.padding(start = 8.dp))
-            
-            Spacer(modifier = Modifier.width(16.dp))
-            
-            RadioButton(
-                selected = uiState.emojiVoice == "others",
-                onClick = { viewModel.setEmojiVoice("others") }
-            )
-            Text(stringResource(R.string.label_others), modifier = Modifier.padding(start = 8.dp))
+
+        if (uiState.activeScripts.isEmpty()) {
+            Text(stringResource(R.string.label_no_scripts), style = MaterialTheme.typography.bodySmall)
+        } else {
+            // Show language names, not script names
+            var expanded by remember { mutableStateOf(false) }
+            val currentLangTag = uiState.scriptLanguages[uiState.emojiVoice]
+            val currentDisplay = if (currentLangTag != null) {
+                Locale.forLanguageTag(currentLangTag).getDisplayName(Locale.getDefault())
+            } else {
+                val firstScript = uiState.activeScripts.firstOrNull()
+                val firstLang = if (firstScript != null) uiState.scriptLanguages[firstScript] else null
+                if (firstLang != null) Locale.forLanguageTag(firstLang).getDisplayName(Locale.getDefault())
+                else stringResource(R.string.placeholder_select_language)
+            }
+
+            Box {
+                TextButton(onClick = { expanded = true }) {
+                    Text(currentDisplay)
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    uiState.activeScripts.forEach { script ->
+                        val langTag = uiState.scriptLanguages[script] ?: return@forEach
+                        val langName = Locale.forLanguageTag(langTag).getDisplayName(Locale.getDefault())
+                        DropdownMenuItem(
+                            text = { Text(langName) },
+                            onClick = {
+                                viewModel.setEmojiVoice(script)
+                                expanded = false
+                            }
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -75,24 +95,6 @@ fun LanguagesTab(uiState: UiState, viewModel: MainViewModel) {
             Button(onClick = { viewModel.deselectAllLanguages() }) {
                 Text(stringResource(R.string.btn_deselect_all))
             }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(stringResource(R.string.label_representative_languages))
-        
-        // Filter locales to show only those selected in "Supported Languages"
-        val filteredLocales = uiState.availableLocales.filter { 
-            uiState.selectedLanguages.contains(it.toLanguageTag())
-        }
-
-        // Latin representative
-        LanguageSelector(stringResource(R.string.label_latin), uiState.latinLanguage, filteredLocales) {
-            viewModel.setLatinLanguage(it)
-        }
-
-        // Others representative
-        LanguageSelector(stringResource(R.string.label_others), uiState.othersLanguage, filteredLocales) {
-            viewModel.setOthersLanguage(it)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -113,18 +115,118 @@ fun LanguagesTab(uiState: UiState, viewModel: MainViewModel) {
 }
 
 @Composable
-fun LanguageSelector(label: String, selected: String?, locales: List<Locale>, onSelect: (String) -> Unit) {
+fun VoicesTab(uiState: UiState, viewModel: MainViewModel) {
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = uiState.useAccessibilityVolume,
+                    onCheckedChange = { viewModel.setUseAccessibilityVolume(it) }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(stringResource(R.string.switch_use_accessibility_volume))
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(stringResource(R.string.label_speech_rate, uiState.speechRate))
+            Slider(
+                value = uiState.speechRate,
+                onValueChange = { viewModel.setSpeechRate(it) },
+                valueRange = 0.5f..3.0f,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(stringResource(R.string.label_pitch, uiState.speechPitch))
+            Slider(
+                value = uiState.speechPitch,
+                onValueChange = { viewModel.setSpeechPitch(it) },
+                valueRange = 0.5f..2.0f,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(stringResource(R.string.label_volume, uiState.speechVolume))
+            Slider(
+                value = uiState.speechVolume,
+                onValueChange = { viewModel.setSpeechVolume(it) },
+                valueRange = 0.0f..1.0f,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // Per-script voice selectors, labeled with language names
+        if (uiState.activeScripts.isEmpty()) {
+            item {
+                Text(stringResource(R.string.label_no_scripts), style = MaterialTheme.typography.bodySmall)
+            }
+        } else {
+            items(uiState.activeScripts) { script ->
+                val scriptLangTag = uiState.scriptLanguages[script]
+                val selectedVoiceId = uiState.scriptVoices[script]
+
+                // Get all ticked languages that share this script
+                val langsForScript = UnicodeScripts.getLanguagesForScript(script, uiState.selectedLanguages)
+                val localesForScript = langsForScript.mapNotNull { tag ->
+                    uiState.availableLocales.find { it.toLanguageTag() == tag }
+                }
+
+                // Display name: use the selected language name
+                val displayLangName = if (scriptLangTag != null) {
+                    Locale.forLanguageTag(scriptLangTag).getDisplayName(Locale.getDefault())
+                } else {
+                    localesForScript.firstOrNull()?.getDisplayName(Locale.getDefault()) ?: script
+                }
+
+                // If multiple languages share a script, show a picker
+                if (localesForScript.size > 1) {
+                    Text(stringResource(R.string.label_voice_for_script, displayLangName))
+                    ScriptLanguagePicker(
+                        currentLangTag = scriptLangTag,
+                        locales = localesForScript,
+                        onSelect = { viewModel.setScriptLanguage(script, it) }
+                    )
+                } else {
+                    Text(stringResource(R.string.label_voice_for_script, displayLangName))
+                }
+
+                ScriptVoiceSelector(
+                    viewModel = viewModel,
+                    language = scriptLangTag,
+                    selectedVoiceId = selectedVoiceId,
+                    allVoices = uiState.availableVoices,
+                    onSelect = { viewModel.setScriptVoice(script, it) }
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun ScriptLanguagePicker(
+    currentLangTag: String?,
+    locales: List<Locale>,
+    onSelect: (String) -> Unit
+) {
     var expanded by remember { mutableStateOf(false) }
-    val currentDisplay = locales.find { it.toLanguageTag() == selected }?.displayName ?: stringResource(R.string.placeholder_select_language)
+    val currentDisplay = locales.find { it.toLanguageTag() == currentLangTag }?.getDisplayName(Locale.getDefault())
+        ?: locales.firstOrNull()?.getDisplayName(Locale.getDefault())
+        ?: ""
 
     Box {
         TextButton(onClick = { expanded = true }) {
-            Text("$label: $currentDisplay")
+            Text(stringResource(R.string.label_change_language) + " " + currentDisplay)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             locales.forEach { locale ->
                 DropdownMenuItem(
-                    text = { Text(locale.displayName) },
+                    text = { Text(locale.getDisplayName(Locale.getDefault())) },
                     onClick = {
                         onSelect(locale.toLanguageTag())
                         expanded = false
@@ -136,65 +238,13 @@ fun LanguageSelector(label: String, selected: String?, locales: List<Locale>, on
 }
 
 @Composable
-fun VoicesTab(uiState: UiState, viewModel: MainViewModel) {
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(
-                checked = uiState.useAccessibilityVolume,
-                onCheckedChange = { viewModel.setUseAccessibilityVolume(it) }
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(stringResource(R.string.switch_use_accessibility_volume))
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(stringResource(R.string.label_speech_rate, uiState.speechRate))
-        Slider(
-            value = uiState.speechRate,
-            onValueChange = { viewModel.setSpeechRate(it) },
-            valueRange = 0.5f..3.0f,
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(stringResource(R.string.label_pitch, uiState.speechPitch))
-        Slider(
-            value = uiState.speechPitch,
-            onValueChange = { viewModel.setSpeechPitch(it) },
-            valueRange = 0.5f..2.0f,
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(stringResource(R.string.label_volume, uiState.speechVolume))
-        Slider(
-            value = uiState.speechVolume,
-            onValueChange = { viewModel.setSpeechVolume(it) },
-            valueRange = 0.0f..1.0f,
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(stringResource(R.string.label_voice_latin))
-        VoiceSelector(viewModel, uiState.latinLanguage, uiState.latinVoiceId, uiState.availableVoices) {
-            viewModel.setLatinVoice(it)
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(stringResource(R.string.label_voice_others))
-        VoiceSelector(viewModel, uiState.othersLanguage, uiState.othersVoiceId, uiState.availableVoices) {
-            viewModel.setOthersVoice(it)
-        }
-    }
-}
-
-@Composable
-fun VoiceSelector(viewModel: MainViewModel, language: String?, selectedVoiceId: String?, allVoices: List<VoiceInfo>, onSelect: (String) -> Unit) {
+fun ScriptVoiceSelector(
+    viewModel: MainViewModel,
+    language: String?,
+    selectedVoiceId: String?,
+    allVoices: List<VoiceInfo>,
+    onSelect: (String) -> Unit
+) {
     if (language == null) {
         Text(stringResource(R.string.error_select_language_first), style = MaterialTheme.typography.bodySmall)
         return
@@ -202,8 +252,8 @@ fun VoiceSelector(viewModel: MainViewModel, language: String?, selectedVoiceId: 
 
     val selectedLocale = Locale.forLanguageTag(language)
     val selectedStableName = viewModel.getStableLanguageName(selectedLocale)
-    
-    val filteredVoices = allVoices.filter { 
+
+    val filteredVoices = allVoices.filter {
         viewModel.getStableLanguageName(it.locale) == selectedStableName
     }
     var expanded by remember { mutableStateOf(false) }

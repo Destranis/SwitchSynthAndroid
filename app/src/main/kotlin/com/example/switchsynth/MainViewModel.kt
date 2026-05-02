@@ -18,16 +18,15 @@ import java.util.Locale
 data class UiState(
     val availableLocales: List<Locale> = emptyList(),
     val selectedLanguages: Set<String> = emptySet(),
-    val latinLanguage: String? = null,
-    val othersLanguage: String? = null,
+    val activeScripts: List<String> = emptyList(),
+    val scriptLanguages: Map<String, String?> = emptyMap(),
+    val scriptVoices: Map<String, String?> = emptyMap(),
     val availableVoices: List<VoiceInfo> = emptyList(),
-    val latinVoiceId: String? = null,
-    val othersVoiceId: String? = null,
     val useAccessibilityVolume: Boolean = true,
     val speechRate: Float = 1.0f,
     val speechPitch: Float = 1.0f,
     val speechVolume: Float = 1.0f,
-    val emojiVoice: String = "latin"
+    val emojiVoice: String = "Latin"
 )
 
 data class VoiceInfo(
@@ -50,14 +49,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             discoverEngines()
         }
 
+        // Observe selected languages + basic settings
         viewModelScope.launch {
             combine(
                 listOf(
                     repository.selectedLanguages,
-                    repository.latinLanguage,
-                    repository.othersLanguage,
-                    repository.latinVoice,
-                    repository.othersVoice,
                     repository.useAccessibilityVolume,
                     repository.speechRate,
                     repository.speechPitch,
@@ -65,32 +61,66 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     repository.emojiVoice
                 )
             ) { args ->
-                _uiState.update { 
+                @Suppress("UNCHECKED_CAST")
+                val selectedLangs = args[0] as Set<String>
+                val useAccVol = args[1] as Boolean
+                val rate = args[2] as Float
+                val pitch = args[3] as Float
+                val volume = args[4] as Float
+                val emojiVoice = args[5] as String
+                val activeScripts = UnicodeScripts.getActiveScripts(selectedLangs)
+                _uiState.update {
                     it.copy(
-                        selectedLanguages = args[0] as Set<String>,
-                        latinLanguage = args[1] as String?,
-                        othersLanguage = args[2] as String?,
-                        latinVoiceId = args[3] as String?,
-                        othersVoiceId = args[4] as String?,
-                        useAccessibilityVolume = args[5] as Boolean,
-                        speechRate = args[6] as Float,
-                        speechPitch = args[7] as Float,
-                        speechVolume = args[8] as Float,
-                        emojiVoice = args[9] as String
+                        selectedLanguages = selectedLangs,
+                        activeScripts = activeScripts,
+                        useAccessibilityVolume = useAccVol,
+                        speechRate = rate,
+                        speechPitch = pitch,
+                        speechVolume = volume,
+                        emojiVoice = emojiVoice
                     )
                 }
-            }.collect()
+                activeScripts
+            }.collectLatest { activeScripts ->
+                // Now observe per-script voices and languages
+                if (activeScripts.isEmpty()) {
+                    _uiState.update { it.copy(scriptLanguages = emptyMap(), scriptVoices = emptyMap()) }
+                    return@collectLatest
+                }
+                val selectedLangs = _uiState.value.selectedLanguages
+                combine(
+                    repository.allScriptLanguages(activeScripts),
+                    repository.allScriptVoices(activeScripts)
+                ) { scriptLangs, scriptVoices ->
+                    // Auto-assign script language when unset or invalid
+                    for (script in activeScripts) {
+                        val currentLang = scriptLangs[script]
+                        val langsForScript = UnicodeScripts.getLanguagesForScript(script, selectedLangs)
+                        if (currentLang == null || currentLang !in langsForScript) {
+                            val autoLang = langsForScript.firstOrNull()
+                            if (autoLang != null) {
+                                repository.updateScriptLanguage(script, autoLang)
+                            }
+                        }
+                    }
+                    _uiState.update {
+                        it.copy(
+                            scriptLanguages = scriptLangs,
+                            scriptVoices = scriptVoices
+                        )
+                    }
+                }.collect()
+            }
         }
     }
 
     private suspend fun discoverEngines() {
         val application = getApplication<Application>()
-        val engineMap = mutableMapOf<String, String>() // Package to Label
+        val engineMap = mutableMapOf<String, String>()
         val pm = application.packageManager
-        
+
         Log.d("SwitchSynth", "Starting robust engine discovery...")
 
-        // 1. System-wide TTS Discovery
         val intent = Intent("android.intent.action.TTS_SERVICE")
         val resolveInfos = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             pm.queryIntentServices(intent, PackageManager.ResolveInfoFlags.of(0))
@@ -98,14 +128,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             @Suppress("DEPRECATION")
             pm.queryIntentServices(intent, 0)
         }
-        
-        resolveInfos.forEach { 
+
+        resolveInfos.forEach {
             val packageName = it.serviceInfo.packageName
             val label = it.loadLabel(pm).toString()
             engineMap[packageName] = label
         }
 
-        // 2. Explicit checks for well-known engines
         val commonPackages = listOf(
             "com.google.android.tts",
             "com.googlecode.eyesfree.espeak",
@@ -126,7 +155,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // 3. Fallback: Check System API
         try {
             val tempInitLock = CompletableDeferred<Int>()
             val tempTts = TextToSpeech(application) { status -> tempInitLock.complete(status) }
@@ -142,33 +170,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         allDiscoveredVoices.clear()
         allDiscoveredLocales.clear()
 
-        // 4. Sequential Querying
         for ((packageName, label) in engineMap) {
             queryEngine(packageName, label)
             updateUiWithDiscoveredData()
-            delay(300) 
+            delay(300)
         }
     }
 
     private suspend fun queryEngine(packageName: String, label: String) {
         val initLock = CompletableDeferred<Int>()
         var tts: TextToSpeech? = null
-        
+
         try {
             tts = TextToSpeech(getApplication(), { status ->
                 initLock.complete(status)
             }, packageName)
 
             val status = withTimeoutOrNull(10000) { initLock.await() }
-            
+
             if (status == TextToSpeech.SUCCESS && tts != null) {
-                // Fetch ALL original locales
                 val locales = tts.availableLanguages ?: emptySet()
                 allDiscoveredLocales.addAll(locales)
 
-                // Fetch voices
                 val voices = try { tts.voices ?: emptySet() } catch (e: Exception) { emptySet() }
-                
+
                 val application = getApplication<Application>()
                 if (voices.isNotEmpty()) {
                     voices.forEach { voice ->
@@ -198,16 +223,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun updateUiWithDiscoveredData() {
-        _uiState.update { 
+        _uiState.update {
             val grouped = allDiscoveredLocales.groupBy { getStableLanguageName(it) }
             val representativeLocales = grouped.map { (_, locales) ->
                 val base = locales.first()
-                // Special handling to prefer RU for Russian, etc.
                 if (base.language == "ru") Locale("ru", "RU")
                 else if (base.language == "hu") Locale("hu", "HU")
                 else Locale(base.language)
             }.sortedBy { getDisplayName(it) }
-            
+
             it.copy(
                 availableLocales = representativeLocales,
                 availableVoices = allDiscoveredVoices.toList().sortedBy { it.name }
@@ -219,7 +243,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return locale.getDisplayName(Locale.getDefault())
     }
 
-    // Helper to get a stable language name regardless of variant or system locale
     fun getStableLanguageName(locale: Locale): String {
         return locale.getDisplayName(Locale.US).substringBefore(" (")
     }
@@ -259,20 +282,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { repository.updateSelectedLanguages(emptySet()) }
     }
 
-    fun setLatinLanguage(language: String) {
-        viewModelScope.launch { repository.updateLatinLanguage(language) }
+    fun setScriptLanguage(script: String, langTag: String) {
+        viewModelScope.launch { repository.updateScriptLanguage(script, langTag) }
     }
 
-    fun setOthersLanguage(language: String) {
-        viewModelScope.launch { repository.updateOthersLanguage(language) }
-    }
-
-    fun setLatinVoice(voiceId: String) {
-        viewModelScope.launch { repository.updateLatinVoice(voiceId) }
-    }
-
-    fun setOthersVoice(voiceId: String) {
-        viewModelScope.launch { repository.updateOthersVoice(voiceId) }
+    fun setScriptVoice(script: String, voiceId: String) {
+        viewModelScope.launch { repository.updateScriptVoice(script, voiceId) }
     }
 
     fun setEmojiVoice(voice: String) {
