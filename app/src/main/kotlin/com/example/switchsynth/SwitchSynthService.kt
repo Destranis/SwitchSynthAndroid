@@ -27,15 +27,25 @@ class SwitchSynthService : TextToSpeechService() {
 
     // --- Cached settings (updated in background, read instantly during synthesis) ---
     @Volatile private var cachedUseAccVolume = true
-    @Volatile private var cachedRate = 1.0f
-    @Volatile private var cachedPitch = 1.0f
-    @Volatile private var cachedVolume = 1.0f
     @Volatile private var cachedEmojiScript = "Latin"
     @Volatile private var cachedScriptVoices = emptyMap<String, String?>()
+    @Volatile private var cachedScriptRates = emptyMap<String, Float>()
+    @Volatile private var cachedScriptPitches = emptyMap<String, Float>()
+    @Volatile private var cachedScriptVolumes = emptyMap<String, Float>()
     @Volatile private var settingsReady = false
 
     // Track what voice is currently set on each engine to avoid redundant calls
     private val engineCurrentVoice = mutableMapOf<String, String>()
+
+    // eSpeak package names to check for fallback
+    private val espeakPackages = listOf(
+        "com.reecedunn.espeak",
+        "com.googlecode.eyesfree.espeak"
+    )
+
+    // Cached eSpeak availability (null = not yet checked)
+    @Volatile private var espeakPackage: String? = null
+    @Volatile private var espeakChecked = false
 
     // Track pending utterance completions
     private val pendingUtterances = java.util.concurrent.ConcurrentHashMap<String, CountDownLatch>()
@@ -74,15 +84,9 @@ class SwitchSynthService : TextToSpeechService() {
         scope.launch {
             combine(
                 repository.useAccessibilityVolume,
-                repository.speechRate,
-                repository.speechPitch,
-                repository.speechVolume,
                 repository.emojiVoice
-            ) { useAcc, rate, pitch, volume, emoji ->
+            ) { useAcc, emoji ->
                 cachedUseAccVolume = useAcc
-                cachedRate = rate
-                cachedPitch = pitch
-                cachedVolume = volume
                 cachedEmojiScript = emoji
             }.collect()
         }
@@ -92,11 +96,22 @@ class SwitchSynthService : TextToSpeechService() {
                 val activeScripts = UnicodeScripts.getActiveScripts(selectedLangs)
                 if (activeScripts.isEmpty()) {
                     cachedScriptVoices = emptyMap()
+                    cachedScriptRates = emptyMap()
+                    cachedScriptPitches = emptyMap()
+                    cachedScriptVolumes = emptyMap()
                     settingsReady = true
                     return@collect
                 }
-                repository.allScriptVoices(activeScripts).collect { voices ->
+                combine(
+                    repository.allScriptVoices(activeScripts),
+                    repository.allScriptSpeechRates(activeScripts),
+                    repository.allScriptSpeechPitches(activeScripts),
+                    repository.allScriptSpeechVolumes(activeScripts)
+                ) { voices, rates, pitches, volumes ->
                     cachedScriptVoices = voices
+                    cachedScriptRates = rates
+                    cachedScriptPitches = pitches
+                    cachedScriptVolumes = volumes
                     settingsReady = true
 
                     for ((_, voiceId) in voices) {
@@ -107,7 +122,7 @@ class SwitchSynthService : TextToSpeechService() {
                             }
                         }
                     }
-                }
+                }.collect()
             }
         }
     }
@@ -166,10 +181,18 @@ class SwitchSynthService : TextToSpeechService() {
                     voices[script] = repository.scriptVoice(script).first()
                 }
                 cachedScriptVoices = voices
+                val rates = mutableMapOf<String, Float>()
+                val pitches = mutableMapOf<String, Float>()
+                val vols = mutableMapOf<String, Float>()
+                for (script in activeScripts) {
+                    rates[script] = repository.scriptSpeechRate(script).first()
+                    pitches[script] = repository.scriptSpeechPitch(script).first()
+                    vols[script] = repository.scriptSpeechVolume(script).first()
+                }
+                cachedScriptRates = rates
+                cachedScriptPitches = pitches
+                cachedScriptVolumes = vols
                 cachedUseAccVolume = repository.useAccessibilityVolume.first()
-                cachedRate = repository.speechRate.first()
-                cachedPitch = repository.speechPitch.first()
-                cachedVolume = repository.speechVolume.first()
                 cachedEmojiScript = repository.emojiVoice.first()
                 settingsReady = true
             }
@@ -177,11 +200,11 @@ class SwitchSynthService : TextToSpeechService() {
 
         // Read cached settings — no disk I/O
         val useAccVolume = cachedUseAccVolume
-        val rate = cachedRate
-        val pitch = cachedPitch
-        val volume = cachedVolume
         val emojiScript = cachedEmojiScript
         val scriptVoices = cachedScriptVoices
+        val scriptRates = cachedScriptRates
+        val scriptPitches = cachedScriptPitches
+        val scriptVolumes = cachedScriptVolumes
 
         val segments = splitText(text, emojiScript)
 
@@ -192,8 +215,12 @@ class SwitchSynthService : TextToSpeechService() {
             for (segment in segments) {
                 if (stopped) break
                 val voiceId = scriptVoices[segment.script]
+                    ?: getEspeakFallbackVoiceId(segment.script)
                     ?: scriptVoices["Latin"]
                     ?: scriptVoices.values.firstOrNull { it != null }
+                val rate = scriptRates[segment.script] ?: 1.0f
+                val pitch = scriptPitches[segment.script] ?: 1.0f
+                val volume = scriptVolumes[segment.script] ?: 1.0f
                 if (voiceId != null) {
                     synthesizeSegment(segment.text, voiceId, useAccVolume, rate, pitch, volume)
                 }
@@ -346,6 +373,32 @@ class SwitchSynthService : TextToSpeechService() {
             tts?.shutdown()
             null
         }
+    }
+
+    private fun getInstalledEspeakPackage(): String? {
+        if (espeakChecked) return espeakPackage
+        val pm = packageManager
+        for (pkg in espeakPackages) {
+            try {
+                pm.getApplicationInfo(pkg, 0)
+                espeakPackage = pkg
+                espeakChecked = true
+                return pkg
+            } catch (e: Exception) { }
+        }
+        espeakChecked = true
+        espeakPackage = null
+        return null
+    }
+
+    /**
+     * Build an eSpeak fallback voice ID for a given script.
+     * Uses the script's default language to pick a locale for eSpeak.
+     */
+    private fun getEspeakFallbackVoiceId(script: String): String? {
+        val pkg = getInstalledEspeakPackage() ?: return null
+        val langTag = UnicodeScripts.SCRIPT_DEFAULT_LANGUAGE[script] ?: return null
+        return "$pkg:default_$langTag"
     }
 
     data class TextSegment(val text: String, val script: String)

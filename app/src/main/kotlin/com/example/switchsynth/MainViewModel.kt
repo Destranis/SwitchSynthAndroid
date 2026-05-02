@@ -23,9 +23,9 @@ data class UiState(
     val scriptVoices: Map<String, String?> = emptyMap(),
     val availableVoices: List<VoiceInfo> = emptyList(),
     val useAccessibilityVolume: Boolean = true,
-    val speechRate: Float = 1.0f,
-    val speechPitch: Float = 1.0f,
-    val speechVolume: Float = 1.0f,
+    val scriptSpeechRates: Map<String, Float> = emptyMap(),
+    val scriptSpeechPitches: Map<String, Float> = emptyMap(),
+    val scriptSpeechVolumes: Map<String, Float> = emptyMap(),
     val emojiVoice: String = "Latin"
 )
 
@@ -55,43 +55,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 listOf(
                     repository.selectedLanguages,
                     repository.useAccessibilityVolume,
-                    repository.speechRate,
-                    repository.speechPitch,
-                    repository.speechVolume,
                     repository.emojiVoice
                 )
             ) { args ->
                 @Suppress("UNCHECKED_CAST")
                 val selectedLangs = args[0] as Set<String>
                 val useAccVol = args[1] as Boolean
-                val rate = args[2] as Float
-                val pitch = args[3] as Float
-                val volume = args[4] as Float
-                val emojiVoice = args[5] as String
+                val emojiVoice = args[2] as String
                 val activeScripts = UnicodeScripts.getActiveScripts(selectedLangs)
                 _uiState.update {
                     it.copy(
                         selectedLanguages = selectedLangs,
                         activeScripts = activeScripts,
                         useAccessibilityVolume = useAccVol,
-                        speechRate = rate,
-                        speechPitch = pitch,
-                        speechVolume = volume,
                         emojiVoice = emojiVoice
                     )
                 }
                 activeScripts
             }.collectLatest { activeScripts ->
-                // Now observe per-script voices and languages
+                // Now observe per-script voices, languages, and speech params
                 if (activeScripts.isEmpty()) {
-                    _uiState.update { it.copy(scriptLanguages = emptyMap(), scriptVoices = emptyMap()) }
+                    _uiState.update {
+                        it.copy(
+                            scriptLanguages = emptyMap(),
+                            scriptVoices = emptyMap(),
+                            scriptSpeechRates = emptyMap(),
+                            scriptSpeechPitches = emptyMap(),
+                            scriptSpeechVolumes = emptyMap()
+                        )
+                    }
                     return@collectLatest
                 }
                 val selectedLangs = _uiState.value.selectedLanguages
                 combine(
                     repository.allScriptLanguages(activeScripts),
-                    repository.allScriptVoices(activeScripts)
-                ) { scriptLangs, scriptVoices ->
+                    repository.allScriptVoices(activeScripts),
+                    repository.allScriptSpeechRates(activeScripts),
+                    repository.allScriptSpeechPitches(activeScripts),
+                    repository.allScriptSpeechVolumes(activeScripts)
+                ) { scriptLangs, scriptVoices, scriptRates, scriptPitches, scriptVolumes ->
                     // Auto-assign script language when unset or invalid
                     for (script in activeScripts) {
                         val currentLang = scriptLangs[script]
@@ -106,7 +108,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update {
                         it.copy(
                             scriptLanguages = scriptLangs,
-                            scriptVoices = scriptVoices
+                            scriptVoices = scriptVoices,
+                            scriptSpeechRates = scriptRates,
+                            scriptSpeechPitches = scriptPitches,
+                            scriptSpeechVolumes = scriptVolumes
                         )
                     }
                 }.collect()
@@ -251,16 +256,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { repository.updateUseAccessibilityVolume(enabled) }
     }
 
-    fun setSpeechRate(rate: Float) {
-        viewModelScope.launch { repository.updateSpeechRate(rate) }
+    fun setScriptSpeechRate(script: String, rate: Float) {
+        viewModelScope.launch { repository.updateScriptSpeechRate(script, rate) }
     }
 
-    fun setSpeechPitch(pitch: Float) {
-        viewModelScope.launch { repository.updateSpeechPitch(pitch) }
+    fun setScriptSpeechPitch(script: String, pitch: Float) {
+        viewModelScope.launch { repository.updateScriptSpeechPitch(script, pitch) }
     }
 
-    fun setSpeechVolume(volume: Float) {
-        viewModelScope.launch { repository.updateSpeechVolume(volume) }
+    fun setScriptSpeechVolume(script: String, volume: Float) {
+        viewModelScope.launch { repository.updateScriptSpeechVolume(script, volume) }
     }
 
     fun toggleLanguage(language: String) {

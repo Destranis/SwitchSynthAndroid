@@ -14,26 +14,41 @@ class PreferencesRepository(private val context: Context) {
     private object Keys {
         val SELECTED_LANGUAGES = stringSetPreferencesKey("selected_languages")
         val USE_ACCESSIBILITY_VOLUME = booleanPreferencesKey("use_accessibility_volume")
-        val SPEECH_RATE = floatPreferencesKey("speech_rate")
-        val SPEECH_PITCH = floatPreferencesKey("speech_pitch")
-        val SPEECH_VOLUME = floatPreferencesKey("speech_volume")
         val EMOJI_VOICE = stringPreferencesKey("emoji_voice")
 
         fun scriptVoiceKey(script: String) = stringPreferencesKey("voice_$script")
         fun scriptLanguageKey(script: String) = stringPreferencesKey("language_$script")
+        fun scriptSpeechRateKey(script: String) = floatPreferencesKey("rate_$script")
+        fun scriptSpeechPitchKey(script: String) = floatPreferencesKey("pitch_$script")
+        fun scriptSpeechVolumeKey(script: String) = floatPreferencesKey("volume_$script")
     }
 
     val useAccessibilityVolume: Flow<Boolean> = context.dataStore.data
         .map { preferences -> preferences[Keys.USE_ACCESSIBILITY_VOLUME] ?: true }
 
-    val speechRate: Flow<Float> = context.dataStore.data
-        .map { preferences -> preferences[Keys.SPEECH_RATE] ?: 1.0f }
+    fun scriptSpeechRate(script: String): Flow<Float> = context.dataStore.data
+        .map { preferences -> preferences[Keys.scriptSpeechRateKey(script)] ?: 1.0f }
 
-    val speechPitch: Flow<Float> = context.dataStore.data
-        .map { preferences -> preferences[Keys.SPEECH_PITCH] ?: 1.0f }
+    fun scriptSpeechPitch(script: String): Flow<Float> = context.dataStore.data
+        .map { preferences -> preferences[Keys.scriptSpeechPitchKey(script)] ?: 1.0f }
 
-    val speechVolume: Flow<Float> = context.dataStore.data
-        .map { preferences -> preferences[Keys.SPEECH_VOLUME] ?: 1.0f }
+    fun scriptSpeechVolume(script: String): Flow<Float> = context.dataStore.data
+        .map { preferences -> preferences[Keys.scriptSpeechVolumeKey(script)] ?: 1.0f }
+
+    fun allScriptSpeechRates(scripts: List<String>): Flow<Map<String, Float>> = context.dataStore.data
+        .map { preferences ->
+            scripts.associateWith { script -> preferences[Keys.scriptSpeechRateKey(script)] ?: 1.0f }
+        }
+
+    fun allScriptSpeechPitches(scripts: List<String>): Flow<Map<String, Float>> = context.dataStore.data
+        .map { preferences ->
+            scripts.associateWith { script -> preferences[Keys.scriptSpeechPitchKey(script)] ?: 1.0f }
+        }
+
+    fun allScriptSpeechVolumes(scripts: List<String>): Flow<Map<String, Float>> = context.dataStore.data
+        .map { preferences ->
+            scripts.associateWith { script -> preferences[Keys.scriptSpeechVolumeKey(script)] ?: 1.0f }
+        }
 
     val emojiVoice: Flow<String> = context.dataStore.data
         .map { preferences -> preferences[Keys.EMOJI_VOICE] ?: "Latin" }
@@ -63,16 +78,16 @@ class PreferencesRepository(private val context: Context) {
         context.dataStore.edit { it[Keys.USE_ACCESSIBILITY_VOLUME] = enabled }
     }
 
-    suspend fun updateSpeechRate(rate: Float) {
-        context.dataStore.edit { it[Keys.SPEECH_RATE] = rate }
+    suspend fun updateScriptSpeechRate(script: String, rate: Float) {
+        context.dataStore.edit { it[Keys.scriptSpeechRateKey(script)] = rate }
     }
 
-    suspend fun updateSpeechPitch(pitch: Float) {
-        context.dataStore.edit { it[Keys.SPEECH_PITCH] = pitch }
+    suspend fun updateScriptSpeechPitch(script: String, pitch: Float) {
+        context.dataStore.edit { it[Keys.scriptSpeechPitchKey(script)] = pitch }
     }
 
-    suspend fun updateSpeechVolume(volume: Float) {
-        context.dataStore.edit { it[Keys.SPEECH_VOLUME] = volume }
+    suspend fun updateScriptSpeechVolume(script: String, volume: Float) {
+        context.dataStore.edit { it[Keys.scriptSpeechVolumeKey(script)] = volume }
     }
 
     suspend fun updateEmojiVoice(voice: String) {
