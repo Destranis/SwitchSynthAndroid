@@ -3,5 +3,6 @@
     android:accessibilityEventTypes="typeViewClicked|typeViewLongClicked"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagDefault"
-    android:canRetrieveWindowContent="true"
+    android:canRetrieveWindowContent="false"
+    android:notificationTimeout="100"
     android:description="@string/accessibility_description" />

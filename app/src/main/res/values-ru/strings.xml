@@ -3,12 +3,14 @@
     <string name="tab_languages">Языки</string>
     <string name="tab_voices">Голоса</string>
     <string name="tab_misc">Прочее</string>
-    <string name="label_emoji_reading">Читать эмодзи голосом для:</string>
-    <string name="accessibility_service_label">Помощник остановки SwitchSynth</string>
-    <string name="accessibility_description">Помогает SwitchSynth прекращать чтение при касании экрана.</string>
+    <string name="label_emoji_reading">Голос для эмодзи:</string>
+    <string name="label_number_reading">Голос для чисел:</string>
+    <string name="option_follow_text">Как в окружающем тексте</string>
+    <string name="accessibility_service_label">Остановка речи SwitchSynth</string>
+    <string name="accessibility_description">Останавливает речь SwitchSynth при касании экрана.</string>
     <string name="btn_select_all">Выбрать все</string>
-    <string name="btn_deselect_all">Снять все</string>
-    <string name="placeholder_select_language">Выберите...</string>
+    <string name="btn_deselect_all">Снять выделение</string>
+    <string name="placeholder_select_language">Выберите…</string>
     <string name="label_change_language">Сменить язык:</string>
     <string name="label_supported_languages">Поддерживаемые языки:</string>
     <string name="switch_use_accessibility_volume">Использовать громкость специальных возможностей</string>
@@ -16,9 +18,9 @@
     <string name="label_pitch">Тон: %1$.1f</string>
     <string name="label_volume">Громкость: %1$.1f</string>
     <string name="label_voice_for_script">Голос для %1$s:</string>
-    <string name="label_no_scripts">Включите языки, чтобы увидеть настройки письма</string>
-    <string name="error_select_language_first">Сначала выберите язык для этого письма на вкладке «Языки».</string>
-    <string name="placeholder_select_voice">Выберите голос...</string>
-    <string name="error_no_voices_found">Голоса для этого языка не найдены</string>
-    <string name="label_default_voice">%1$s - По умолчанию (%2$s)</string>
+    <string name="label_no_scripts">Включите языки, чтобы увидеть настройки письменности.</string>
+    <string name="error_select_language_first">Сначала выберите язык для этой письменности на вкладке «Языки».</string>
+    <string name="placeholder_select_voice">Выберите голос…</string>
+    <string name="error_no_voices_found">Голоса для этого языка не найдены.</string>
+    <string name="label_default_voice">%1$s — по умолчанию (%2$s)</string>
 </resources>

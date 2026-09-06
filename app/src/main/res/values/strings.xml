@@ -4,6 +4,8 @@
     <string name="tab_voices">Voices</string>
     <string name="tab_misc">Misc</string>
     <string name="label_emoji_reading">Read emoji using voice for:</string>
+    <string name="label_number_reading">Read numbers using voice for:</string>
+    <string name="option_follow_text">Follow surrounding text</string>
     <string name="accessibility_service_label">SwitchSynth Stop Helper</string>
     <string name="accessibility_description">Helps SwitchSynth stop speaking when you touch the screen.</string>
     <string name="btn_select_all">Select All</string>

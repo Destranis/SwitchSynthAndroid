@@ -65,41 +65,91 @@ fun MainScreen(viewModel: MainViewModel) {
 @Composable
 fun MiscTab(uiState: UiState, viewModel: MainViewModel) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text(stringResource(R.string.label_emoji_reading))
-        Spacer(modifier = Modifier.height(8.dp))
-
         if (uiState.activeScripts.isEmpty()) {
             Text(stringResource(R.string.label_no_scripts), style = MaterialTheme.typography.bodySmall)
-        } else {
-            // Show language names, not script names
-            var expanded by remember { mutableStateOf(false) }
-            val currentLangTag = uiState.scriptLanguages[uiState.emojiVoice]
-            val currentDisplay = if (currentLangTag != null) {
-                Locale.forLanguageTag(currentLangTag).getDisplayName(Locale.getDefault())
-            } else {
-                val firstScript = uiState.activeScripts.firstOrNull()
-                val firstLang = if (firstScript != null) uiState.scriptLanguages[firstScript] else null
-                if (firstLang != null) Locale.forLanguageTag(firstLang).getDisplayName(Locale.getDefault())
-                else stringResource(R.string.placeholder_select_language)
-            }
+            return
+        }
 
-            Box {
-                TextButton(onClick = { expanded = true }) {
-                    Text(currentDisplay)
-                }
-                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    uiState.activeScripts.forEach { script ->
-                        val langTag = uiState.scriptLanguages[script] ?: return@forEach
-                        val langName = Locale.forLanguageTag(langTag).getDisplayName(Locale.getDefault())
-                        DropdownMenuItem(
-                            text = { Text(langName) },
-                            onClick = {
-                                viewModel.setEmojiVoice(script)
-                                expanded = false
-                            }
-                        )
+        // Emoji voice picker
+        Text(stringResource(R.string.label_emoji_reading))
+        Spacer(modifier = Modifier.height(8.dp))
+        ScriptVoicePicker(
+            uiState = uiState,
+            selectedScript = uiState.emojiVoice,
+            includeFollowOption = false,
+            onSelect = { viewModel.setEmojiVoice(it) }
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Number voice picker — defaults to "Common" (follow surrounding text)
+        Text(stringResource(R.string.label_number_reading))
+        Spacer(modifier = Modifier.height(8.dp))
+        ScriptVoicePicker(
+            uiState = uiState,
+            selectedScript = uiState.numberVoice,
+            includeFollowOption = true,
+            onSelect = { viewModel.setNumberVoice(it) }
+        )
+    }
+}
+
+/**
+ * Dropdown that maps active scripts to their language names and lets the user
+ * pick which voice reads a category of characters (emoji, numbers, …).
+ * When [includeFollowOption] is true, the sentinel "Common" script means
+ * "follow the surrounding text" and is offered as the first choice.
+ */
+@Composable
+fun ScriptVoicePicker(
+    uiState: UiState,
+    selectedScript: String,
+    includeFollowOption: Boolean,
+    onSelect: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val followLabel = stringResource(R.string.option_follow_text)
+
+    fun scriptDisplayName(script: String): String {
+        val langTag = uiState.scriptLanguages[script]
+        return if (langTag != null) {
+            Locale.forLanguageTag(langTag).getDisplayName(Locale.getDefault())
+        } else script
+    }
+
+    val currentDisplay = when {
+        selectedScript == "Common" && includeFollowOption -> followLabel
+        uiState.scriptLanguages[selectedScript] != null -> scriptDisplayName(selectedScript)
+        else -> {
+            val firstScript = uiState.activeScripts.firstOrNull()
+            if (firstScript != null) scriptDisplayName(firstScript)
+            else stringResource(R.string.placeholder_select_language)
+        }
+    }
+
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Text(currentDisplay)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (includeFollowOption) {
+                DropdownMenuItem(
+                    text = { Text(followLabel) },
+                    onClick = {
+                        onSelect("Common")
+                        expanded = false
                     }
-                }
+                )
+            }
+            uiState.activeScripts.forEach { script ->
+                if (uiState.scriptLanguages[script] == null) return@forEach
+                DropdownMenuItem(
+                    text = { Text(scriptDisplayName(script)) },
+                    onClick = {
+                        onSelect(script)
+                        expanded = false
+                    }
+                )
             }
         }
     }

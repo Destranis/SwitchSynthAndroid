@@ -21,21 +21,37 @@ import java.util.concurrent.TimeUnit
 class SwitchSynthService : TextToSpeechService() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private lateinit var repository: PreferencesRepository
-    private val engines = mutableMapOf<String, TextToSpeech>()
+    // Accessed from both the settings-observer coroutine (warm-up) and the TTS
+    // synthesis thread, so it must be concurrent-safe.
+    private val engines = java.util.concurrent.ConcurrentHashMap<String, TextToSpeech>()
 
     @Volatile private var stopped = false
 
     // --- Cached settings (updated in background, read instantly during synthesis) ---
     @Volatile private var cachedUseAccVolume = true
     @Volatile private var cachedEmojiScript = "Latin"
+    // "Common" = follow the surrounding text (no dedicated number voice).
+    @Volatile private var cachedNumberScript = "Common"
     @Volatile private var cachedScriptVoices = emptyMap<String, String?>()
     @Volatile private var cachedScriptRates = emptyMap<String, Float>()
     @Volatile private var cachedScriptPitches = emptyMap<String, Float>()
     @Volatile private var cachedScriptVolumes = emptyMap<String, Float>()
     @Volatile private var settingsReady = false
 
-    // Track what voice is currently set on each engine to avoid redundant calls
+    // Track what voice/rate/pitch is currently set on each engine to avoid
+    // redundant IPC calls (each set* is a binder round-trip to the child engine).
     private val engineCurrentVoice = mutableMapOf<String, String>()
+    private val engineCurrentRate = mutableMapOf<String, Float>()
+    private val engineCurrentPitch = mutableMapOf<String, Float>()
+
+    // Whether we are currently producing speech. Read by the accessibility
+    // helper so an idle screen tap costs nothing (no engine IPC storm).
+    @Volatile var isSpeaking = false
+        private set
+
+    // Name of the engine that last played audio, so a new request only needs to
+    // stop that one instead of every loaded engine.
+    @Volatile private var lastActiveEngineName: String? = null
 
     // eSpeak package names to check for fallback
     private val espeakPackages = listOf(
@@ -69,7 +85,12 @@ class SwitchSynthService : TextToSpeechService() {
         var instance: SwitchSynthService? = null
 
         fun stopSpeech() {
-            instance?.onStop()
+            val inst = instance ?: return
+            // Fast path: nothing is playing, so a screen tap does no work.
+            if (!inst.isSpeaking) return
+            // Never run the engine stop IPCs on the caller's thread (the
+            // accessibility service main thread) — that is what froze the helper.
+            inst.scope.launch { inst.onStop() }
         }
     }
 
@@ -84,10 +105,12 @@ class SwitchSynthService : TextToSpeechService() {
         scope.launch {
             combine(
                 repository.useAccessibilityVolume,
-                repository.emojiVoice
-            ) { useAcc, emoji ->
+                repository.emojiVoice,
+                repository.numberVoice
+            ) { useAcc, emoji, number ->
                 cachedUseAccVolume = useAcc
                 cachedEmojiScript = emoji
+                cachedNumberScript = number
             }.collect()
         }
 
@@ -114,12 +137,21 @@ class SwitchSynthService : TextToSpeechService() {
                     cachedScriptVolumes = volumes
                     settingsReady = true
 
-                    for ((_, voiceId) in voices) {
+                    for (voiceId in voices.values) {
                         if (voiceId != null) {
                             val engineName = voiceId.substringBefore(":", "")
                             if (engineName.isNotEmpty() && !engines.containsKey(engineName)) {
                                 launch { getEngine(engineName) }
                             }
+                        }
+                    }
+
+                    // Warm up the eSpeak fallback engine too if any active script
+                    // has no configured voice — its cold init is the slowest and
+                    // would otherwise land on the first real utterance.
+                    if (voices.any { it.value == null }) {
+                        getInstalledEspeakPackage()?.let { pkg ->
+                            if (!engines.containsKey(pkg)) launch { getEngine(pkg) }
                         }
                     }
                 }.collect()
@@ -150,6 +182,7 @@ class SwitchSynthService : TextToSpeechService() {
     override fun onStop() {
         Log.d("SwitchSynth", "onStop() called")
         stopped = true
+        isSpeaking = false
         // Release all pending waits
         for ((_, latch) in pendingUtterances) {
             latch.countDown()
@@ -167,8 +200,10 @@ class SwitchSynthService : TextToSpeechService() {
         Log.d("SwitchSynth", "Synthesize: $text")
 
         stopped = false
-        engines.values.forEach {
-            try { it.stop() } catch (e: Exception) {}
+        // Only the engine that last played can still be talking — stop just that
+        // one instead of an IPC to every loaded engine on every utterance.
+        lastActiveEngineName?.let { name ->
+            try { engines[name]?.stop() } catch (e: Exception) {}
         }
 
         // Ensure settings are loaded (only blocks on very first call ever)
@@ -194,6 +229,7 @@ class SwitchSynthService : TextToSpeechService() {
                 cachedScriptVolumes = vols
                 cachedUseAccVolume = repository.useAccessibilityVolume.first()
                 cachedEmojiScript = repository.emojiVoice.first()
+                cachedNumberScript = repository.numberVoice.first()
                 settingsReady = true
             }
         }
@@ -201,14 +237,16 @@ class SwitchSynthService : TextToSpeechService() {
         // Read cached settings — no disk I/O
         val useAccVolume = cachedUseAccVolume
         val emojiScript = cachedEmojiScript
+        val numberScript = cachedNumberScript
         val scriptVoices = cachedScriptVoices
         val scriptRates = cachedScriptRates
         val scriptPitches = cachedScriptPitches
         val scriptVolumes = cachedScriptVolumes
 
-        val segments = splitText(text, emojiScript)
+        val segments = splitText(text, emojiScript, numberScript)
 
         // Run directly on the TTS synthesis thread — no coroutine overhead
+        isSpeaking = true
         try {
             callback.start(16000, android.media.AudioFormat.ENCODING_PCM_16BIT, 1)
 
@@ -230,14 +268,23 @@ class SwitchSynthService : TextToSpeechService() {
         } catch (e: Exception) {
             Log.e("SwitchSynth", "Synthesis error", e)
             callback.error()
+        } finally {
+            isSpeaking = false
         }
     }
 
-    private fun getScriptForCodePoint(codePoint: Int, emojiScript: String): String {
+    private fun getScriptForCodePoint(codePoint: Int, emojiScript: String, numberScript: String): String {
         if (isEmoji(codePoint)) {
             return emojiScript
         }
-        return UnicodeScripts.getScriptName(codePoint)
+        val base = UnicodeScripts.getScriptName(codePoint)
+        // Route script-neutral digits (0-9, fullwidth digits, …) to the chosen
+        // number voice. "Common" means "follow surrounding text" — leave as-is.
+        // Script-specific digits (Arabic-Indic, Devanagari, …) keep their own script.
+        if (numberScript != "Common" && base == "Common" && Character.isDigit(codePoint)) {
+            return numberScript
+        }
+        return base
     }
 
     private fun isEmoji(codePoint: Int): Boolean {
@@ -249,7 +296,7 @@ class SwitchSynthService : TextToSpeechService() {
                 (codePoint == 0x203C || codePoint == 0x2049)
     }
 
-    private fun splitText(text: String, emojiScript: String): List<TextSegment> {
+    private fun splitText(text: String, emojiScript: String, numberScript: String): List<TextSegment> {
         if (text.isEmpty()) return emptyList()
         val segments = mutableListOf<TextSegment>()
         var currentText = StringBuilder()
@@ -258,7 +305,7 @@ class SwitchSynthService : TextToSpeechService() {
 
         var currentScript = "Latin"
         for (cp in codePoints) {
-            val s = getScriptForCodePoint(cp, emojiScript)
+            val s = getScriptForCodePoint(cp, emojiScript, numberScript)
             if (s != "Common") {
                 currentScript = s
                 break
@@ -266,7 +313,7 @@ class SwitchSynthService : TextToSpeechService() {
         }
 
         for (cp in codePoints) {
-            val charScript = getScriptForCodePoint(cp, emojiScript)
+            val charScript = getScriptForCodePoint(cp, emojiScript, numberScript)
 
             if (charScript == "Common" || charScript == currentScript) {
                 currentText.appendCodePoint(cp)
@@ -298,8 +345,15 @@ class SwitchSynthService : TextToSpeechService() {
         val latch = CountDownLatch(1)
         pendingUtterances[utteranceId] = latch
 
-        internalTts.setSpeechRate(rate)
-        internalTts.setPitch(pitch)
+        // Only push rate/pitch if they changed since last time on this engine
+        if (engineCurrentRate[engineName] != rate) {
+            internalTts.setSpeechRate(rate)
+            engineCurrentRate[engineName] = rate
+        }
+        if (engineCurrentPitch[engineName] != pitch) {
+            internalTts.setPitch(pitch)
+            engineCurrentPitch[engineName] = pitch
+        }
 
         // Only set voice/language if it changed since last time on this engine
         val lastVoice = engineCurrentVoice[engineName]
@@ -322,6 +376,7 @@ class SwitchSynthService : TextToSpeechService() {
             internalTts.setAudioAttributes(accessibilityAudioAttributes)
         }
 
+        lastActiveEngineName = engineName
         internalTts.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
 
         // Block until utterance completes — no coroutine overhead

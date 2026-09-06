@@ -26,7 +26,8 @@ data class UiState(
     val scriptSpeechRates: Map<String, Float> = emptyMap(),
     val scriptSpeechPitches: Map<String, Float> = emptyMap(),
     val scriptSpeechVolumes: Map<String, Float> = emptyMap(),
-    val emojiVoice: String = "Latin"
+    val emojiVoice: String = "Latin",
+    val numberVoice: String = "Common"
 )
 
 data class VoiceInfo(
@@ -55,20 +56,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 listOf(
                     repository.selectedLanguages,
                     repository.useAccessibilityVolume,
-                    repository.emojiVoice
+                    repository.emojiVoice,
+                    repository.numberVoice
                 )
             ) { args ->
                 @Suppress("UNCHECKED_CAST")
                 val selectedLangs = args[0] as Set<String>
                 val useAccVol = args[1] as Boolean
                 val emojiVoice = args[2] as String
+                val numberVoice = args[3] as String
                 val activeScripts = UnicodeScripts.getActiveScripts(selectedLangs)
                 _uiState.update {
                     it.copy(
                         selectedLanguages = selectedLangs,
                         activeScripts = activeScripts,
                         useAccessibilityVolume = useAccVol,
-                        emojiVoice = emojiVoice
+                        emojiVoice = emojiVoice,
+                        numberVoice = numberVoice
                     )
                 }
                 activeScripts
@@ -193,7 +197,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val status = withTimeoutOrNull(10000) { initLock.await() }
 
-            if (status == TextToSpeech.SUCCESS && tts != null) {
+            if (status == TextToSpeech.SUCCESS) {
                 val locales = tts.availableLanguages ?: emptySet()
                 allDiscoveredLocales.addAll(locales)
 
@@ -297,5 +301,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setEmojiVoice(voice: String) {
         viewModelScope.launch { repository.updateEmojiVoice(voice) }
+    }
+
+    fun setNumberVoice(voice: String) {
+        viewModelScope.launch { repository.updateNumberVoice(voice) }
     }
 }

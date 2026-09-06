@@ -15,6 +15,7 @@ class PreferencesRepository(private val context: Context) {
         val SELECTED_LANGUAGES = stringSetPreferencesKey("selected_languages")
         val USE_ACCESSIBILITY_VOLUME = booleanPreferencesKey("use_accessibility_volume")
         val EMOJI_VOICE = stringPreferencesKey("emoji_voice")
+        val NUMBER_VOICE = stringPreferencesKey("number_voice")
 
         fun scriptVoiceKey(script: String) = stringPreferencesKey("voice_$script")
         fun scriptLanguageKey(script: String) = stringPreferencesKey("language_$script")
@@ -52,6 +53,10 @@ class PreferencesRepository(private val context: Context) {
 
     val emojiVoice: Flow<String> = context.dataStore.data
         .map { preferences -> preferences[Keys.EMOJI_VOICE] ?: "Latin" }
+
+    // "Common" means "follow the surrounding text" (no dedicated voice for numbers).
+    val numberVoice: Flow<String> = context.dataStore.data
+        .map { preferences -> preferences[Keys.NUMBER_VOICE] ?: "Common" }
 
     val selectedLanguages: Flow<Set<String>> = context.dataStore.data
         .map { preferences -> preferences[Keys.SELECTED_LANGUAGES] ?: emptySet() }
@@ -92,6 +97,10 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun updateEmojiVoice(voice: String) {
         context.dataStore.edit { it[Keys.EMOJI_VOICE] = voice }
+    }
+
+    suspend fun updateNumberVoice(voice: String) {
+        context.dataStore.edit { it[Keys.NUMBER_VOICE] = voice }
     }
 
     suspend fun updateSelectedLanguages(languages: Set<String>) {
